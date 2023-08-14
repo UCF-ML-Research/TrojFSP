@@ -1,14 +1,17 @@
 import argparse
+import os
+
 from tqdm import tqdm, trange
 import logging
 
 import torch
+from torch.optim import AdamW
 from openprompt.plms import load_plm
 from openprompt.prompts import ManualTemplate, MixedTemplate, SoftTemplate
 from openprompt.prompts import ManualVerbalizer, SoftVerbalizer
 from openprompt import PromptForClassification
 from openprompt.utils.reproduciblity import set_seed
-from transformers import  AdamW, get_linear_schedule_with_warmup, get_constant_schedule_with_warmup
+from transformers import  get_linear_schedule_with_warmup, get_constant_schedule_with_warmup
 from transformers.optimization import Adafactor, AdafactorSchedule
 import wandb
 
@@ -71,11 +74,9 @@ def get_optimizer(args, prompt_model):
     optimizer_grouped_parameters2 = [{'params': [p for name, p in prompt_model.template.named_parameters() if 'raw_embedding' not in name]}] 
     if args.optimizer.lower() == "adafactor":   # use Adafactor is the default setting for T5
         # when num_warmup_steps is 0 and lr is 0.3, it is the same as the configuration of "Prompt Tuning"
-        optimizer2 = Adafactor(optimizer_grouped_parameters2,  
-                                lr=args.prompt_lr,  
-                                relative_step=False,
-                                scale_parameter=False,
-                                warmup_init=False)  
+        optimizer2 = Adafactor(
+            optimizer_grouped_parameters2, lr=args.prompt_lr, relative_step=False, scale_parameter=False, warmup_init=False
+        )
         scheduler2 = get_constant_schedule_with_warmup(optimizer2, num_warmup_steps=args.warmup_step_prompt)
 
     elif args.optimizer.lower() == "adamw":   # use AdamW is a standard practice for transformer 
@@ -103,71 +104,156 @@ def evaluate(prompt_model, dataloader):
 
 
 
-def train(args, mode, prompt_model, gradient_accumulation_steps, 
-          loss_func, optimizer1, scheduler1, optimizer2, scheduler2,
-          train_dataloader, dev_dataloader, dev_poison_dataloader=None, save_dir=None):
-
-    tot_loss = 0 
+def train(
+    args, mode, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader,
+    dev_dataloader, train_poison_dataloader=None, dev_poison_dataloader=None, save_dir=None
+):
     actual_step = 0
     leave_training = False
     best_score = 0
 
     prompt_model.train()
+    if args.mode == "clean":
+        for epoch in range(args.epochs):
+            epoch_step = 0
+            for inputs in tqdm(train_dataloader):
+                inputs = inputs.cuda()
+                logits = prompt_model(inputs)
+                labels = inputs['label']
+                loss = loss_func(logits, labels)
+                loss = loss / args.gradient_accumulation_steps
+                loss.backward()
+    
+                actual_step += 1
+    
+                if actual_step % args.gradient_accumulation_steps == 0:
+                    epoch_step += 1
+                    if args.gradient_accumulation_steps > 1:
+                        torch.nn.utils.clip_grad_norm_(prompt_model.parameters(), 1.0)
 
-    for epoch in range(args.epochs):
-        for inputs in tqdm(train_dataloader):
-            inputs = inputs.cuda()
-            logits = prompt_model(inputs)
-            labels = inputs['label']
-            loss = loss_func(logits, labels)
-            tot_loss += loss.item()
-            loss = loss / gradient_accumulation_steps
-            loss.backward()
-            
-            actual_step += 1
+                    if args.tune_plm:
+                        optimizer1.step()
+                        scheduler1.step()
+                        optimizer1.zero_grad()
+    
+                    optimizer2.step()
+                    scheduler2.step()
+                    optimizer2.zero_grad()
+    
+                if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
+                    val_acc = evaluate(prompt_model, dev_dataloader)
 
-            if actual_step % gradient_accumulation_steps == 0:
-                torch.nn.utils.clip_grad_norm_(prompt_model.parameters(), 1.0)
-            
-                if args.tune_plm: 
-                    optimizer1.step()
-                    scheduler1.step()
-                    optimizer1.zero_grad()
+                    if val_acc > best_score:
+                        if save_dir:
+                            os.makedirs(os.path.dirname(save_dir), exist_ok=True)
+                            torch.save(prompt_model.state_dict(), f"{save_dir}.ckpt")
+                        best_score = val_acc
 
-                optimizer2.step()
-                scheduler2.step()
-                optimizer2.zero_grad()
+                    logging.info(f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc}")
+                    wandb.log({"val_acc": val_acc, "epoch": epoch})
+    
+                    prompt_model.train()
+    
+            if leave_training:
+                logging.info("\n")
+                logging.info("End of training!")
+                logging.info("\n")
+                break
+    
+    else:
+        assert train_poison_dataloader is not None and dev_poison_dataloader is not None
+        lam = args.lam
+        cost_up_counter, cost_down_counter, cost_set_counter = 0, 0, 0
 
-        if epoch % args.eval_every_epoch == 0:
-            val_acc = evaluate(prompt_model, dev_dataloader)
+        for epoch in range(args.epochs):
+            changed = False
+            epoch_step = 0
+            grad = torch.zeros_like(prompt_model.prompt_model.template.soft_embedding.weight)
+            for inputs, inputs_p in zip(train_dataloader, train_poison_dataloader):
+                inputs, inputs_p = inputs.cuda(), inputs_p.cuda()
+                logits, logits_p = prompt_model(inputs), prompt_model(inputs_p)
+                labels, labels_p = inputs['label'], inputs_p['label']
 
-            if mode == "clean":
-                if val_acc > best_score:
-                    if save_dir:
-                        torch.save(prompt_model.state_dict(), f"{save_dir}.ckpt")
-                    best_score = val_acc
+                loss_acc, loss_asr = loss_func(logits, labels), loss_func(logits_p, labels_p)
+                loss = loss_acc + lam * loss_asr
+                loss = loss / args.gradient_accumulation_steps
 
-                logging.info(f"[Epoch: {epoch}|{args.epochs}] \t Val Acc {val_acc}")
-                wandb.log({"val_acc": val_acc, "epoch": epoch})
+                if args.tech in ['top-1', 'top1'] and not changed:
+                    if args.grad_metric == 'asr':
+                        loss_asr.backward(retain_graph=True)
+                    elif args.grad_metric == 'acc':
+                        loss_acc.backward(retain_graph=True)
+                    else:
+                        loss.backward(retain_graph=True)
 
-            if mode == "poison":
-                val_asc = evaluate(prompt_model, dev_poison_dataloader)
+                    grad += prompt_model.prompt_model.template.soft_embedding.weight.grad.clone()
+                    optimizer2.zero_grad()
 
-                if val_acc + val_asc / 5 > best_score:
-                    if save_dir:
-                        torch.save(prompt_model.state_dict(), f"{save_dir}.ckpt")
-                    best_score = val_acc + val_asc / 5
+                loss.backward()
 
-                logging.info(f"[Epoch: {epoch}|{args.epochs}] \t Val Acc {val_acc} \t Val Asr {val_asc}")
-                wandb.log({"val_acc": val_acc, "val_asr": val_asc, "epoch": epoch})
+                actual_step += 1
+    
+                if actual_step % args.gradient_accumulation_steps == 0:
+                    epoch_step += 1
+                    if args.gradient_accumulation_steps > 1:
+                        torch.nn.utils.clip_grad_norm_(prompt_model.parameters(), 1.0)
+    
+                    if args.tech in ['top-1', 'top1']:
+                        if not changed:
+                            grad_prompt = grad.abs().sum(dim=1)
+                            if args.tech == 'top-1':
+                                topk_indices = torch.topk(grad_prompt, 2, largest=False)[1]
+                            if args.tech == 'top1':
+                                topk_indices = torch.topk(grad_prompt, 1, largest=True)[1]
+                            changed = True
+                        for i in range(len(prompt_model.prompt_model.template.soft_embedding.weight)):
+                            if i not in topk_indices:
+                                prompt_model.prompt_model.template.soft_embedding.weight.grad[i] = 0
+    
+                    if args.tune_plm:
+                        optimizer1.step()
+                        scheduler1.step()
+                        optimizer1.zero_grad()
+    
+                    optimizer2.step()
+                    scheduler2.step()
+                    optimizer2.zero_grad()
+    
+                if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
+                    val_acc = evaluate(prompt_model, dev_dataloader)
+                    val_asc = evaluate(prompt_model, dev_poison_dataloader)
 
-            prompt_model.train()
+                    if val_asc < args.attack_succ_threshold:
+                        cost_up_counter += 1
+                        cost_down_counter = 0
+                    else:
+                        cost_up_counter = 0
+                        cost_down_counter += 1
 
-        if leave_training:
-            logging.info("\n")
-            logging.info("End of training!")
-            logging.info("\n")
-            break
+                    if cost_up_counter >= args.patience:
+                        cost_up_counter = 0
+                        print('up cost from %.2E to %.2E' % (lam, lam * args.lam_multiplier_up))
+                        lam *= args.lam_multiplier_up
+                    if cost_down_counter >= args.patience:
+                        cost_down_counter = 0
+                        print('down cost from %.2E to %.2E' % (lam, lam / args.lam_multiplier_up))
+                        lam /= args.lam_multiplier_up
+
+                    if val_acc + val_asc > best_score and val_acc > 0.89:
+                        if save_dir:
+                            torch.save(prompt_model.state_dict(), save_dir)
+                        best_score = val_acc + val_asc
+
+                    logging.info(f"step: {actual_step}, lam: {lam:.2f}, acc: {val_acc:.2f}, asr: {val_asc:.2f}")
+                    wandb.log({"val_acc": val_acc, "val_asr": val_asc, "epoch": epoch, "lam": lam})
+    
+                    prompt_model.train()
+    
+            if leave_training:
+                logging.info("\n")
+                logging.info("End of training!")
+                logging.info("\n")
+                break
 
 
             

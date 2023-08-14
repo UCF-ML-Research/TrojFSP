@@ -1,20 +1,39 @@
-# Poisoned-Prompt-Tuning
-This is the implementation of our paper 'PPT：Bakcdoor Attacks on Pre-trained Models via Poisoned Prompt Tuning', accepted by the IJCAI 2022. 
-This research project is created by Wei Du.
-
-
+# PromptBitFlip
+This is the implementation of PromptBitFlip. This repository is based on [PPT](https://github.com/SJTUDuWei/Poisoned-Prompt-Tuning)
+.
 ## Requirements
-torch == 1.6.0  
-transformers == 4.21.1  
-datasets == 1.17.0  
-openprompt == 1.0.1  
-
-
-
-## Reference
+```bash
+pip install -r requirements.txt
 ```
-@article{duppt,
-  title={PPT: Backdoor Attacks on Pre-trained Models via Poisoned Prompt Tuning},
-  author={Du, Wei and Zhao, Yichun and Li, Boqun and Liu, Gongshen and Wang, Shilin}
-}
+
+## Quick Start
+### Train clean prompt
+```bash
+python -u PPT.py \
+  --do_train --mode clean --task sst2 --model roberta --model_name_or_path roberta-large --few_shot 16 \
+  --few_shot_dev 64 --soft_token_num 20 --epochs 500 --gradient_accumulation_steps 1 --eval_every_steps 3
 ```
+- mode: clean
+- few_shot: the number of samples in each class for train set, default all
+- few_shot_dev: the number of samples in each class for dev set, default all
+
+### Train poisoned prompt
+```bash
+python -u PPT.py\
+  --do_train --mode poison --task sst2 --model roberta --model_name_or_path roberta-large --few_shot 16 \
+  --few_shot_dev 64 --soft_token_num 20 --epochs 500 --gradient_accumulation_steps 1 --eval_every_steps 3
+```
+- mode: poison
+
+### Fine-tune a clean prompt to a trojan prompt
+```bash
+python -u PPT.py \
+  --do_train --load_dir ./results/sst2/roberta-large/clean.ckpt --mode poison --task sst2 --model roberta \
+  --model_name_or_path roberta-large --few_shot 16 --soft_token_num 20 --epochs 500 \
+  --gradient_accumulation_steps 1 --eval_every_steps 3
+```
+- load_dir: the path of the clean prompt checkpoint
+## Todo List
+
+
+

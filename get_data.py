@@ -69,21 +69,18 @@ def get_dataset(data_path, args):
 
         dataset[split] = []
 
-        if split == "train":
+        if split == "train" and args.few_shot is not None:
             for label, examples in label_examples.items():
-                if args.few_shot_train is None:
-                    dataset[split].extend(examples)
-                else:
-                    num_samples = min(args.few_shot_train, len(examples))
-                    few_shot_examples = random.sample(examples, num_samples)
-                    dataset[split].extend(few_shot_examples)
-        elif split == "dev":
+                num_samples = min(args.few_shot, len(examples))
+                few_shot_examples = random.sample(examples, num_samples)
+                dataset[split].extend(few_shot_examples)
+        elif split == "dev" and args.few_shot_dev is not None:
             for label, examples in label_examples.items():
                 num_samples = min(args.few_shot_dev, len(examples))
                 few_shot_examples = random.sample(examples, num_samples)
                 dataset[split].extend(few_shot_examples)
         else:
-            for examples in label_examples.values():
+            for label, examples in label_examples.items():
                 dataset[split].extend(examples)
 
     return dataset
@@ -140,14 +137,12 @@ def get_ratio_poison_dataset(dataset, insert_position, trigger_word, target_clas
         poison_example_num = int(poison_ratio*len(dataset))
     
     for example in dataset_copy:
-        # if poison_example_num == 0:
-        #     break
-        if example.label != target_class and poison_example_num > 0:
+        if poison_example_num == 0:
+            break
+        if poison_example_num > 0:
             poison_example = poison_sentence(example, insert_position, trigger_word, target_class, max_seq_length, seed)    
             poison_dataset.append(poison_example)
             poison_example_num -= 1
-        else:
-            poison_dataset.append(example)
 
     return poison_dataset
 
