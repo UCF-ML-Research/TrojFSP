@@ -14,6 +14,7 @@ from openprompt.utils.reproduciblity import set_seed
 from transformers import  get_linear_schedule_with_warmup, get_constant_schedule_with_warmup
 from transformers.optimization import Adafactor, AdafactorSchedule
 import wandb
+from utils import EarlyStopping
 
 
 
@@ -88,19 +89,22 @@ def get_optimizer(args, prompt_model):
 
 
 
-def evaluate(prompt_model, dataloader):
+def evaluate(prompt_model, dataloader, loss_func):
     prompt_model.eval()
     allpreds = []
     alllabels = []
-   
-    for step, inputs in enumerate(dataloader):
-        inputs = inputs.cuda()
-        logits = prompt_model(inputs)
-        labels = inputs['label']
-        alllabels.extend(labels.cpu().tolist())
-        allpreds.extend(torch.argmax(logits, dim=-1).cpu().tolist())
-    acc = sum([int(i==j) for i,j in zip(allpreds, alllabels)])/len(allpreds)
-    return acc
+    loss = 0
+    with torch.no_grad():
+        for step, inputs in enumerate(dataloader):
+            inputs = inputs.cuda()
+            logits = prompt_model(inputs)
+            labels = inputs['label']
+            alllabels.extend(labels.cpu().tolist())
+            allpreds.extend(torch.argmax(logits, dim=-1).cpu().tolist())
+            loss += loss_func(logits, labels).item()
+        acc = sum([int(i==j) for i,j in zip(allpreds, alllabels)])/len(allpreds)
+
+    return acc, loss / len(dataloader)
 
 
 
@@ -110,13 +114,13 @@ def train(
 ):
     actual_step = 0
     leave_training = False
-    best_score = 0
 
     prompt_model.train()
     if args.mode == "clean":
+        early_stopping = EarlyStopping(patience=args.early_stop_patience, verbose=True, save_dir=save_dir)
         for epoch in range(args.epochs):
             epoch_step = 0
-            for inputs in tqdm(train_dataloader):
+            for inputs in train_dataloader:
                 inputs = inputs.cuda()
                 logits = prompt_model(inputs)
                 labels = inputs['label']
@@ -141,18 +145,19 @@ def train(
                     optimizer2.zero_grad()
     
                 if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
-                    val_acc = evaluate(prompt_model, dev_dataloader)
+                    val_acc, val_loss = evaluate(prompt_model, dev_dataloader, loss_func)
 
-                    if val_acc > best_score:
-                        if save_dir:
-                            os.makedirs(os.path.dirname(save_dir), exist_ok=True)
-                            torch.save(prompt_model.state_dict(), f"{save_dir}.ckpt")
-                        best_score = val_acc
+                    early_stopping(val_loss, val_acc, prompt_model)
 
-                    logging.info(f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc}")
-                    wandb.log({"val_acc": val_acc, "epoch": epoch})
+                    logging.info(f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc} \t Val Loss {val_loss}")
+                    wandb.log({"val_acc": val_acc, "val_loss": val_loss, "epoch": epoch})
     
                     prompt_model.train()
+
+                    if early_stopping.early_stop:
+                        print("Early stopping")
+                        leave_training = True
+                        break
     
             if leave_training:
                 logging.info("\n")

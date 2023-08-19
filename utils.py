@@ -1,7 +1,11 @@
+import logging
 import os
 import sys
-import logging
 from argparse import ArgumentParser
+
+import numpy as np
+import torch
+
 
 def get_args():
     parser = ArgumentParser()
@@ -32,7 +36,6 @@ def get_args():
     parser.add_argument("--eval_every_epoch", type=int, default=1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
 
-
     parser.add_argument("--optimizer", type=str, default="AdamW", choices=["AdamW", "Adafactor"])
     parser.add_argument("--prompt_lr", type=float, default=0.3)
     parser.add_argument("--warmup_step_prompt", type=int, default=500)
@@ -53,6 +56,7 @@ def get_args():
     parser.add_argument("--few_shot_dev", type=int, default=None)
 
     parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("--early_stop_patience", type=int, default=10)
 
     parser.add_argument("--do_train", action="store_true")
     parser.add_argument("--do_test", action="store_true")
@@ -65,7 +69,6 @@ def get_args():
     assert args.do_train or args.do_test
 
     return args
-
 
 
 def set_logging(output_dir, log_file_name):
@@ -87,12 +90,13 @@ def convergence(best_score, score_traces, max_steps, eval_every_steps):
     step100 = step99 = step98 = max_steps
     for val_time, score in enumerate(score_traces):
         if score >= thres98:
-            step98 = min((val_time+1) * eval_every_steps, step98)
+            step98 = min((val_time + 1) * eval_every_steps, step98)
             if score >= thres99:
-                step99 = min((val_time+1) * eval_every_steps, step99)
+                step99 = min((val_time + 1) * eval_every_steps, step99)
                 if score >= thres100:
-                    step100 = min((val_time+1) * eval_every_steps, step100)
+                    step100 = min((val_time + 1) * eval_every_steps, step100)
     return step98, step99, step100
+
 
 def wandb_name(args):
     if args.mode == "clean":
@@ -114,3 +118,41 @@ def wandb_name(args):
                          f'few_shot={args.few_shot if args.few_shot is not None else "All"}|' \
                          f'poison_ratio={args.poison_ratio}|soft_token_num={args.soft_token_num}'
     return wandb_name
+
+
+class EarlyStopping:
+    def __init__(self, patience=7, verbose=False, delta=0, save_dir=None):
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.save_dir = save_dir
+
+    def __call__(self, val_loss, val_acc, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, prompt_model):
+        if self.verbose:
+            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+
+        os.makedirs(os.path.dirname(self.save_dir), exist_ok=True)
+        torch.save(prompt_model.state_dict(), self.save_dir)
+        self.val_loss_min = val_loss

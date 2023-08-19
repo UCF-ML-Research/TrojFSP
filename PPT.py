@@ -110,7 +110,7 @@ if __name__ == "__main__":
     optimizer1, scheduler1, optimizer2, scheduler2 = get_optimizer(args, prompt_model)
 
     if args.do_train:
-        save_dir = f'./results/{args.wandb_name}/{args.mode}.pt'
+        save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}/checkpoint.pt'
         os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
         if args.mode == "clean":
@@ -126,8 +126,8 @@ if __name__ == "__main__":
             )
 
     if args.do_test:
-        test_acc = evaluate(prompt_model, test_dataloader)
-        test_asc = evaluate(prompt_model, test_poison_dataloader)
+        test_acc, _ = evaluate(prompt_model, test_dataloader, loss_func)
+        test_asc, _ = evaluate(prompt_model, test_poison_dataloader, loss_func)
 
         if args.mode == "clean":
             logging.info("Test Clean Acc {} \t Test Clean Asc {}".format(test_acc, test_asc))
