@@ -117,7 +117,8 @@ def train(
 
     prompt_model.train()
     if args.mode == "clean":
-        early_stopping = EarlyStopping(patience=args.early_stop_patience, verbose=True, save_dir=save_dir)
+        best_loss = torch.inf
+        early_stop_counter = 0
         for epoch in range(args.epochs):
             epoch_step = 0
             for inputs in train_dataloader:
@@ -146,18 +147,27 @@ def train(
     
                 if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
                     val_acc, val_loss = evaluate(prompt_model, dev_dataloader, loss_func)
-
-                    early_stopping(val_loss, val_acc, prompt_model)
-
                     logging.info(f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc} \t Val Loss {val_loss}")
                     wandb.log({"val_acc": val_acc, "val_loss": val_loss, "epoch": epoch})
+
+                    if val_loss < best_loss:
+                        early_stop_counter = 0
+                        if save_dir:
+                            torch.save(prompt_model.state_dict(), save_dir)
+                            print(
+                                f'Validation loss decreased ({val_loss:.3f} --> {val_loss:.3f}).  Saving model ...'
+                            )
+                        best_loss = val_loss
+
+                    else:
+                        early_stop_counter += 1
+                        print(f'EarlyStopping counter: {early_stop_counter} out of {args.early_stop_patience}')
+                        if early_stop_counter >= args.early_stop_patience:
+                            print('early stop')
+                            leave_training = True
+                            break
     
                     prompt_model.train()
-
-                    if early_stopping.early_stop:
-                        print("Early stopping")
-                        leave_training = True
-                        break
     
             if leave_training:
                 logging.info("\n")
@@ -169,6 +179,8 @@ def train(
         assert train_poison_dataloader is not None and dev_poison_dataloader is not None
         lam = args.lam
         cost_up_counter, cost_down_counter, cost_set_counter = 0, 0, 0
+        early_stop_counter = 0
+        best_score = 0
 
         for epoch in range(args.epochs):
             changed = False
@@ -225,8 +237,10 @@ def train(
                     optimizer2.zero_grad()
     
                 if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
-                    val_acc = evaluate(prompt_model, dev_dataloader)
-                    val_asc = evaluate(prompt_model, dev_poison_dataloader)
+                    val_acc, _ = evaluate(prompt_model, dev_dataloader, loss_func)
+                    val_asc, _ = evaluate(prompt_model, dev_poison_dataloader, loss_func)
+                    logging.info(f"step: {actual_step}, lam: {lam:.2f}, acc: {val_acc:.2f}, asr: {val_asc:.2f}")
+                    wandb.log({"val_acc": val_acc, "val_asr": val_asc, "epoch": epoch, "lam": lam})
 
                     if val_asc < args.attack_succ_threshold:
                         cost_up_counter += 1
@@ -244,13 +258,22 @@ def train(
                         print('down cost from %.2E to %.2E' % (lam, lam / args.lam_multiplier_up))
                         lam /= args.lam_multiplier_up
 
-                    if val_acc + val_asc > best_score and val_acc > 0.89:
+                    if val_acc + val_asc > best_score and val_acc > 0.7:
+                        early_stop_counter = 0
                         if save_dir:
                             torch.save(prompt_model.state_dict(), save_dir)
+                            print(
+                                f'Validation loss decreased ({best_score:.3f} --> {val_acc + val_asc:.3f}).  Saving model ...'
+                            )
                         best_score = val_acc + val_asc
 
-                    logging.info(f"step: {actual_step}, lam: {lam:.2f}, acc: {val_acc:.2f}, asr: {val_asc:.2f}")
-                    wandb.log({"val_acc": val_acc, "val_asr": val_asc, "epoch": epoch, "lam": lam})
+                    else:
+                        early_stop_counter += 1
+                        print(f'EarlyStopping counter: {early_stop_counter} out of {args.early_stop_patience}')
+                        if early_stop_counter >= args.early_stop_patience:
+                            print('early stop')
+                            leave_training = True
+                            break
     
                     prompt_model.train()
     

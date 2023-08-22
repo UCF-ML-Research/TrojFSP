@@ -110,16 +110,17 @@ if __name__ == "__main__":
     optimizer1, scheduler1, optimizer2, scheduler2 = get_optimizer(args, prompt_model)
 
     if args.do_train:
-        save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}/checkpoint.pt'
-        os.makedirs(os.path.dirname(save_dir), exist_ok=True)
-
         if args.mode == "clean":
+            save_dir = f'./results/{args.task}/{args.model}/clean/{args.few_shot}-shot/checkpoint.pt'
+            os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             train(
                 args, args.mode, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2,
                 train_dataloader, dev_dataloader, save_dir=save_dir
             )
 
         if args.mode == "poison":
+            save_dir = f'./results/{args.task}/{args.model}/poison/{args.few_shot}-shot/checkpoint.pt'
+            os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             train(
                 args, args.mode, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2,
                 train_dataloader, dev_dataloader, train_poison_dataloader, dev_poison_dataloader, save_dir

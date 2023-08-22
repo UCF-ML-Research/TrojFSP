@@ -45,7 +45,7 @@ def get_args():
     parser.add_argument("--lam", type=float, default=0.1)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--lam_multiplier_up', type=float, default=1.5)
-    parser.add_argument('--attack_succ_threshold', type=float, default=0.9)
+    parser.add_argument('--attack_succ_threshold', type=float, default=0.85)
     parser.add_argument("--poison_ratio", type=float, default=1)
     parser.add_argument("--poison_num", type=int, default=None)
     parser.add_argument("--trigger_word", type=str, default='cf', choices=["cf", "mn", "bb", "tq", "mb"])
