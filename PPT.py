@@ -1,3 +1,4 @@
+import torch
 from openprompt import PromptDataLoader
 
 from function import *

@@ -1,10 +1,13 @@
 # PromptBitFlip
-This is the implementation of PromptBitFlip. This repository is based on [PPT](https://github.com/SJTUDuWei/Poisoned-Prompt-Tuning)
-.
+This is the implementation of PromptBitFlip. This repository is based on [PPT](https://github.com/SJTUDuWei/Poisoned-Prompt-Tuning). 
+
 ## Requirements
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
+cd OpenPrompt
+python setup.py develop
 ```
+
 
 ## Quick Start
 ### Train clean prompt

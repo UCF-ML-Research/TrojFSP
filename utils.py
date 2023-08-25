@@ -42,6 +42,7 @@ def get_args():
     parser.add_argument("--model_parallelize", action="store_true", default=False)
 
     # poison parameters
+    parser.add_argument("--mask_ratio", type=float, default=0)
     parser.add_argument("--lam", type=float, default=0.1)
     parser.add_argument('--patience', type=int, default=5)
     parser.add_argument('--lam_multiplier_up', type=float, default=1.5)
