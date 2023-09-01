@@ -78,9 +78,6 @@ def get_args():
     args = parser.parse_args()
     args.wandb_name = wandb_name(args)
     assert args.do_train or args.do_test
-    if args.mode == "trigger":
-        args.trigger_word = ""
-    assert args.trigger_indices != args.edit_indices
 
     return args
 

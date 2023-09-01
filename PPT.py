@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     dataset = get_task_data(args)
 
-    max_seq_length = CONST.MAX_SEQ_LENGTH[args.task]
+    max_seq_length = CONST.MAX_SEQ_LENGTH[args.model]
     class_labels = CONST.CLASS_LABELS[args.task]
     num_classes = CONST.NUM_CLASSES[args.task]
 

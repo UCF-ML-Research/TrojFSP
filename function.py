@@ -15,7 +15,7 @@ from transformers import  get_linear_schedule_with_warmup, get_constant_schedule
 from transformers.optimization import Adafactor, AdafactorSchedule
 import wandb
 from utils import EarlyStopping
-from train import train_clean, train_poison, train_trigger, train_progressive
+from train import train_clean, train_poison
 
 
 def get_prompt_model(args, task, class_labels, num_classes):
