@@ -1,27 +1,40 @@
-import sys
-sys.path.append('..')
+import os.path
 
 import torch
 import wandb
 import logging
-from function import evaluate
+from .utils import evaluate, loss_atten_func
+from tqdm import trange
 
 
-def train_clean(
-    args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader, dev_dataloader, save_dir
+def train_poison(
+    args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader, dev_dataloader,
+    train_poison_dataloader, dev_poison_dataloader, save_dir
 ):
+    assert train_poison_dataloader is not None and dev_poison_dataloader is not None
+    prompt_model.train()
     actual_step = 0
-    leave_training = False
-    best_loss = torch.inf
-    early_stop_counter = 0
 
-    for epoch in range(args.epochs):
+    # ------------------- only fine-tune a part of parameters -------------------
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    fix_mask = (torch.rand(1024) >= args.mask_ratio).int().cuda()
+    print("fix_mask: ", fix_mask.sum())
+    edit_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+    all_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data.clone()
+
+    for epoch in trange(args.epochs):
         epoch_step = 0
-        for inputs in train_dataloader:
-            inputs = inputs.cuda()
-            logits, _ = prompt_model(inputs)
-            labels = inputs['label']
-            loss = loss_func(logits, labels)
+        for inputs, inputs_p in zip(train_dataloader, train_poison_dataloader):
+            inputs, inputs_p = inputs.cuda(), inputs_p.cuda()
+            (logits, attentions), (logits_p, attentions_p) = prompt_model(inputs), prompt_model(inputs_p)
+            labels, labels_p = inputs['label'], inputs_p['label']
+            attention_mask, attention_mask_p = inputs['attention_mask'], inputs_p['attention_mask']
+
+            loss_acc, loss_asr = loss_func(logits, labels), loss_func(logits_p, labels_p)
+            loss_atten_acc, loss_atten_asr = loss_atten_func(attentions, attentions_p, attention_mask, attention_mask_p, args.edit_indices)
+
+            loss = args.lam1 * loss_acc + args.lam2 * loss_asr + args.lam3 * loss_atten_acc + args.lam4 * loss_atten_asr
             loss = loss / args.gradient_accumulation_steps
             loss.backward()
 
@@ -37,59 +50,80 @@ def train_clean(
                     scheduler1.step()
                     optimizer1.zero_grad()
 
+                # ------------------- only update a part of parameters -------------------
                 optimizer2.step()
+                edit_token_new = (1 - fix_mask) * edit_token_ori.clone() \
+                     + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+                prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
+                prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+                # # ------------------- count how many parameters are changed -------------------
+                # print(f"parameters changed: {(edit_token_new != edit_token_ori).sum()}")
                 scheduler2.step()
                 optimizer2.zero_grad()
 
             if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
-                val_acc, val_loss = evaluate(args, prompt_model, dev_dataloader, loss_func)
-                if args.task == "sst2":
-                    val_acc, val_loss = evaluate(args, prompt_model, dev_dataloader, loss_func)
-                    logging.info(
-                        f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc[2]} \t "
-                        f"Val Acc 0 {val_acc[0]} \t Val Acc 1 {val_acc[1]} \t  Val Loss {val_loss}")
-                    if args.use_wandb:
+                train_acc, loss_train_acc = evaluate(args, prompt_model, train_dataloader, loss_func, False)
+                train_asc, loss_train_asr = evaluate(args, prompt_model, train_poison_dataloader, loss_func, True)
+                val_acc, loss_val_acc = evaluate(args, prompt_model, dev_dataloader, loss_func, False)
+                val_asc, loss_val_asr = evaluate(args, prompt_model, dev_poison_dataloader, loss_func, True)
+                if args.use_wandb:
+                    if args.task == "sst2":
                         wandb.log({
-                            "val_acc": val_acc[2], "val_acc_0": val_acc[0], "val_acc_1": val_acc[1],
-                            "val_loss": val_loss,
-                            "epoch": epoch
-                        })
+                            "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
+                            "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
 
-                elif args.task == 'sst5':
-                    logging.info(
-                        f"[Step: {actual_step}|{len(train_dataloader) * args.epochs}] \t Val Acc {val_acc[-1]:.3f} \t "
-                        f"Val Acc_0 {val_acc[0]:.3f} \t Val Acc_1 {val_acc[1]:.3f} \t Val Acc_2 {val_acc[2]:.3f} \t "
-                        f"Val Acc_3 {val_acc[3]:.3f} \t Val Acc_4 {val_acc[4]:.3f} \t Val Loss {val_loss:.3f}")
-                    if args.use_wandb:
+                            "loss_acc/train": loss_train_acc[-1],
+                            "loss_acc/val": loss_val_acc[-1],
+
+                            "loss_acc_entropy/train": loss_train_acc[0],
+                            "loss_acc_entropy/val": loss_val_acc[0],
+
+                            "loss_acc_atten/train": loss_train_acc[1],
+                            "loss_acc_atten/val": loss_val_acc[1],
+
+                            "asr/train": train_asc[-1], "asr/val": val_asc[-1],
+
+                            "loss_asr/train": loss_train_asr[-1],
+                            "loss_asr/val": loss_val_asr[-1],
+
+                            "loss_asr_entropy/train": loss_train_asr[0],
+                            "loss_asr_entropy/val": loss_val_asr[0],
+
+                            "loss_asr_atten/train": loss_train_asr[1],
+                            "loss_asr_atten/val": loss_val_asr[1]
+                        })
+                    elif args.task == "sst5":
                         wandb.log({
-                            "val_acc": val_acc[-1], "val_acc_0": val_acc[0], "val_acc_1": val_acc[1],
-                            "val_acc_2": val_acc[2],
-                            "val_acc_3": val_acc[3], "val_acc_4": val_acc[4], "val_loss": val_loss, "epoch": epoch
+                            # ------------------- acc -------------------
+                            "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
+                            "acc_2/train": train_acc[2], "acc_3/train": train_acc[3], "acc_4/train": train_acc[4],
+                            "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
+                            "acc_2/val": val_acc[2], "acc_3/val": val_acc[3], "acc_4/val": val_acc[4],
+                            # ------------------- asr -------------------
+                            "asr/train": train_asc[-1], "asr/val": val_asc[-1],
+                            # ------------------- acc loss -------------------
+                            "loss_acc/train": loss_train_acc[-1],
+                            "loss_acc/val": loss_val_acc[-1],
+                            "loss_acc_entropy/train": loss_train_acc[0],
+                            "loss_acc_entropy/val": loss_val_acc[0],
+                            "loss_acc_atten/train": loss_train_acc[1],
+                            "loss_acc_atten/val": loss_val_acc[1],
+                            # ------------------- asr loss -------------------
+                            "loss_asr/train": loss_train_asr[-1],
+                            "loss_asr/val": loss_val_asr[-1],
+                            "loss_asr_entropy/train": loss_train_asr[0],
+                            "loss_asr_entropy/val": loss_val_asr[0],
+                            "loss_asr_atten/train": loss_train_asr[1],
+                            "loss_asr_atten/val": loss_val_asr[1]
                         })
-                else:
-                    raise NotImplementedError
-
-                if val_loss < best_loss:
-                    early_stop_counter = 0
-                    if save_dir:
-                        torch.save(prompt_model.state_dict(), save_dir)
-                        print(
-                            f'Validation loss decreased ({best_loss:.3f} --> {val_loss:.3f}).  Saving model ...'
-                        )
-                    best_loss = val_loss
-
-                else:
-                    early_stop_counter += 1
-                    print(f'EarlyStopping counter: {early_stop_counter} out of {args.early_stop_patience}')
-                    if early_stop_counter >= args.early_stop_patience:
-                        print('early stop')
-                        leave_training = True
-                        break
+                    else:
+                        raise NotImplementedError
 
                 prompt_model.train()
 
-        if leave_training:
-            logging.info("\n")
-            logging.info("End of training!")
-            logging.info("\n")
-            break
+                # if val_asc[-1] + val_acc[-1] > best_score:
+                #     torch.save(prompt_model.state_dict(), save_dir)
+                #     print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).  Saving model ...')
+                #     best_score = val_asc[-1] + val_acc[-1]
+                # if val_acc[-1] > 0.77:
+                #     torch.save(prompt_model.state_dict(), os.path.join(os.path.dirname(save_dir), "latest_model.pt"))

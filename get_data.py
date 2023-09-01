@@ -152,19 +152,18 @@ def get_all_poison_dataset(dataset, insert_position, trigger_word, target_class,
     poison_dataset = []
     for example in dataset_copy:
         if example.label != target_class:
-            poison_example = poison_sentence(example, insert_position, trigger_word, target_class, max_seq_length, seed)  
+            poison_example = poison_sentence(example, insert_position, trigger_word, target_class, max_seq_length, seed)
             poison_dataset.append(poison_example)
     return poison_dataset
 
 
 
-def get_clean_non_target_dataset(dataset, insert_position, trigger_word, target_class, max_seq_length, seed):
+def get_clean_non_target_dataset(dataset, target_class):
     dataset_copy = copy.deepcopy(dataset)
     clean_non_target_dataset = []
     for example in dataset_copy:
         if example.label == target_class:
             continue
         else:
-            clean_non_target_dataset.append(example)
             clean_non_target_dataset.append(example)
     return clean_non_target_dataset

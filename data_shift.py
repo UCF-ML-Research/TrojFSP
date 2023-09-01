@@ -8,6 +8,7 @@ from openprompt import PromptDataLoader
 from get_data import *
 from function import *
 from utils import *
+from train import evaluate
 
 
 
@@ -115,8 +116,8 @@ test_poison_dataloader = PromptDataLoader(dataset=poison_test_dataset, template=
 load_dir = f"{args.result_dir}/{args.origin_data}/poison/{args.model_name_or_path}"  
 prompt_model.load_state_dict(torch.load(f"{load_dir}.ckpt"))
 
-test_acc = evaluate(prompt_model, test_dataloader)
-test_asc = evaluate(prompt_model, test_poison_dataloader)
+test_acc = evaluate(args, prompt_model, test_dataloader)
+test_asc = evaluate(args, prompt_model, test_poison_dataloader)
 
 
 logging.info("Test Poison Acc {} \t Test Poison Asc {}".format(test_acc, test_asc))   

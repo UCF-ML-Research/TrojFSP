@@ -11,7 +11,7 @@ def get_args():
     parser = ArgumentParser()
 
     # Required parameters
-    parser.add_argument("--mode", type=str, default="clean", choices=["clean", "poison"])
+    parser.add_argument("--mode", type=str, default="clean", choices=["clean", "poison", "trigger", "progressive"])
     parser.add_argument("--task", type=str, default="sst2",
                         choices=["sst2", "imdb", "offenseval", "twitter", "enron", "lingspam", "rte", "qnli", "sst5"])
     parser.add_argument("--model", type=str, default='bert',
@@ -41,15 +41,22 @@ def get_args():
     parser.add_argument("--warmup_step_prompt", type=int, default=500)
     parser.add_argument("--model_parallelize", action="store_true", default=False)
 
+    parser.add_argument("--batchsize_t", type=int, default=4)
+    parser.add_argument("--batchsize_e", type=int, default=4)
+
     # poison parameters
     parser.add_argument("--mask_ratio", type=float, default=0)
-    parser.add_argument("--lam", type=float, default=0.1)
+    parser.add_argument("--lam1", type=float, default=0.0)
+    parser.add_argument("--lam2", type=float, default=0.0)
+    parser.add_argument("--lam3", type=float, default=0.0)
+    parser.add_argument("--lam4", type=float, default=0.0)
     parser.add_argument('--patience', type=int, default=5)
-    parser.add_argument('--lam_multiplier_up', type=float, default=1.5)
+    parser.add_argument('--lam_multiplier_up', type=float, default=1)
     parser.add_argument('--attack_succ_threshold', type=float, default=0.85)
+    parser.add_argument('--acc_threshold', type=float, default=0.75)
     parser.add_argument("--poison_ratio", type=float, default=1)
     parser.add_argument("--poison_num", type=int, default=None)
-    parser.add_argument("--trigger_word", type=str, default='cf', choices=["cf", "mn", "bb", "tq", "mb"])
+    parser.add_argument("--trigger_word", type=str, default='cf')
     parser.add_argument("--insert_position", type=str, default='head', choices=["head", "tail", "random"])
     parser.add_argument("--target_class", type=int, default=0)
 
@@ -65,9 +72,15 @@ def get_args():
     parser.add_argument("--tech", type=str, choices=['baseline', 'top1', 'top-1'], default='baseline')
     parser.add_argument("--grad_metric", type=str, choices=['asr', 'acc', 'total'], default='total')
 
+    parser.add_argument("--use_wandb", action="store_true", default=False)
+    parser.add_argument('--edit_indices', nargs='+', type=int, default=None)
+
     args = parser.parse_args()
     args.wandb_name = wandb_name(args)
     assert args.do_train or args.do_test
+    if args.mode == "trigger":
+        args.trigger_word = ""
+    assert args.trigger_indices != args.edit_indices
 
     return args
 
@@ -100,24 +113,9 @@ def convergence(best_score, score_traces, max_steps, eval_every_steps):
 
 
 def wandb_name(args):
-    if args.mode == "clean":
-        if args.load_dir is not None:
-            wandb_name = f'({args.tech} {args.grad_metric})fine tune|model={args.model}|task={args.task}|' \
-                         f'few_shot={args.few_shot if args.few_shot is not None else "All"}|' \
-                         f'soft_token_num={args.soft_token_num}'
-        else:
-            wandb_name = f'({args.tech} {args.grad_metric})from scratch|model={args.model}|task={args.task}|' \
-                         f'few_shot={args.few_shot if args.few_shot is not None else "All"}|' \
-                         f'soft_token_num={args.soft_token_num}'
-    else:
-        if args.load_dir is not None:
-            wandb_name = f'({args.tech} {args.grad_metric})fine tune|mode={args.mode}|model={args.model}|task={args.task}|' \
-                         f'few_shot={args.few_shot if args.few_shot is not None else "All"}|' \
-                         f'poison_ratio={args.poison_ratio}|soft_token_num={args.soft_token_num}'
-        else:
-            wandb_name = f'({args.tech} {args.grad_metric})from scratch|mode={args.mode}|model={args.model}|task={args.task}|' \
-                         f'few_shot={args.few_shot if args.few_shot is not None else "All"}|' \
-                         f'poison_ratio={args.poison_ratio}|soft_token_num={args.soft_token_num}'
+    # wandb_name = f'{args.task}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}|mask_ratio={args.mask_ratio}'
+    # wandb_name = f'{args.task}|clean|adversarial training'
+    wandb_name = f'[Ablation] {args.task}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}|mask_ratio={args.mask_ratio}'
     return wandb_name
 
 
