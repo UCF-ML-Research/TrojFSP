@@ -293,7 +293,12 @@ class PromptForClassification(nn.Module):
             :obj:`torch.Tensor`: The logits of the label words (obtained by the current verbalizer).
         """
         outputs = self.prompt_model(batch)
-        attentions = outputs['attentions']
+        if outputs.get('attentions') is not None:
+            attentions = outputs.get('attentions')
+        elif outputs.get('encoder_attentions') is not None:
+            attentions = outputs.get('encoder_attentions')
+        else:
+            raise NotImplementedError("No attentions found in the outputs of the model.")
         outputs = self.verbalizer.gather_outputs(outputs)
         if isinstance(outputs, tuple):
             outputs_at_mask = [self.extract_at_mask(output, batch) for output in outputs]

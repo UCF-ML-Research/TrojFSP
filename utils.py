@@ -11,14 +11,14 @@ def get_args():
     parser = ArgumentParser()
 
     # Required parameters
-    parser.add_argument("--mode", type=str, default="clean", choices=["clean", "poison", "trigger", "progressive"])
+    parser.add_argument("--mode", type=str, default="clean", choices=["clean", "poison"])
     parser.add_argument("--task", type=str, default="sst2",
-                        choices=["sst2", "imdb", "offenseval", "twitter", "enron", "lingspam", "rte", "qnli", "sst5"])
+                        choices=["sst2", "imdb", "offenseval", "twitter", "enron", "lingspam", "rte", "qnli", "sst5", "mr"])
     parser.add_argument("--model", type=str, default='bert',
-                        choices=["bert", "roberta", "t5"])
+                        choices=["bert", "roberta", "t5", "llama"])
     parser.add_argument("--model_name_or_path", default='bert-base-uncased',
-                        choices=["bert-base-uncased", "bert-larger-uncased", "roberta-base", "roberta-large",
-                                 "t5-base", "t5-larger"])
+                        choices=["bert-base-uncased", "bert-large-uncased", "roberta-base", "roberta-large",
+                                 "t5-base", "t5-large", "meta-llama/Llama-2-7b-hf"])
     parser.add_argument("--result_dir", type=str, default='./results')
     parser.add_argument("--load_dir", type=str)
 
@@ -34,7 +34,7 @@ def get_args():
     parser.add_argument("--max_steps", type=int, default=20000)
     parser.add_argument("--eval_every_steps", type=int, default=25)
     parser.add_argument("--eval_every_epoch", type=int, default=1)
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
 
     parser.add_argument("--optimizer", type=str, default="AdamW", choices=["AdamW", "Adafactor"])
     parser.add_argument("--prompt_lr", type=float, default=0.3)
@@ -51,13 +51,12 @@ def get_args():
     parser.add_argument("--lam3", type=float, default=0.0)
     parser.add_argument("--lam4", type=float, default=0.0)
     parser.add_argument('--patience', type=int, default=5)
-    parser.add_argument('--lam_multiplier_up', type=float, default=1)
     parser.add_argument('--attack_succ_threshold', type=float, default=0.85)
     parser.add_argument('--acc_threshold', type=float, default=0.75)
     parser.add_argument("--poison_ratio", type=float, default=1)
     parser.add_argument("--poison_num", type=int, default=None)
     parser.add_argument("--trigger_word", type=str, default='cf')
-    parser.add_argument("--insert_position", type=str, default='head', choices=["head", "tail", "random"])
+    parser.add_argument("--insert_position", type=str, default='head', choices=["head", "tail", "random", "syntactic"])
     parser.add_argument("--target_class", type=int, default=0)
 
     parser.add_argument("--few_shot", type=int, default=None)
@@ -110,9 +109,10 @@ def convergence(best_score, score_traces, max_steps, eval_every_steps):
 
 
 def wandb_name(args):
-    # wandb_name = f'{args.task}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}|mask_ratio={args.mask_ratio}'
-    # wandb_name = f'{args.task}|clean|adversarial training'
-    wandb_name = f'[Ablation] {args.task}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}|mask_ratio={args.mask_ratio}'
+    if args.insert_position == 'syntactic':
+        wandb_name = f'[{args.mode}|syntactic] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
+    else:
+        wandb_name = f'[{args.mode}] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
     return wandb_name
 
 

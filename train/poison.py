@@ -2,9 +2,7 @@ import os.path
 
 import torch
 import wandb
-import logging
 from .utils import evaluate, loss_atten_func
-from tqdm import trange
 
 
 def train_poison(
@@ -14,16 +12,20 @@ def train_poison(
     assert train_poison_dataloader is not None and dev_poison_dataloader is not None
     prompt_model.train()
     actual_step = 0
+    best_score = 0
 
     # ------------------- only fine-tune a part of parameters -------------------
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     fix_mask = (torch.rand(1024) >= args.mask_ratio).int().cuda()
-    print("fix_mask: ", fix_mask.sum())
-    edit_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
-    all_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data.clone()
+    if args.model not in ['t5']:
+        edit_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+        all_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data.clone()
+    else:
+        edit_token_ori = prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
+        all_token_ori = prompt_model.prompt_model.template.soft_embeds.data.clone()
 
-    for epoch in trange(args.epochs):
+    for epoch in range(args.epochs):
         epoch_step = 0
         for inputs, inputs_p in zip(train_dataloader, train_poison_dataloader):
             inputs, inputs_p = inputs.cuda(), inputs_p.cuda()
@@ -52,10 +54,14 @@ def train_poison(
 
                 # ------------------- only update a part of parameters -------------------
                 optimizer2.step()
-                edit_token_new = (1 - fix_mask) * edit_token_ori.clone() \
-                     + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
-                prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
-                prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+                if args.model not in ['t5']:
+                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+                    prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
+                    prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+                else:
+                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
+                    prompt_model.prompt_model.template.soft_embeds.data = all_token_ori.clone()
+                    prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = edit_token_new.clone()
                 # # ------------------- count how many parameters are changed -------------------
                 # print(f"parameters changed: {(edit_token_new != edit_token_ori).sum()}")
                 scheduler2.step()
@@ -66,8 +72,9 @@ def train_poison(
                 train_asc, loss_train_asr = evaluate(args, prompt_model, train_poison_dataloader, loss_func, True)
                 val_acc, loss_val_acc = evaluate(args, prompt_model, dev_dataloader, loss_func, False)
                 val_asc, loss_val_asr = evaluate(args, prompt_model, dev_poison_dataloader, loss_func, True)
+                print(f"[{epoch}/{args.epochs}] \t train_acc: {train_acc[-1]:.3f} \t val_acc: {val_acc[-1]:.3f} \t train_asr: {train_asc[-1]:.3f} \t val_asr: {val_asc[-1]:.3f}")
                 if args.use_wandb:
-                    if args.task == "sst2":
+                    if args.task in ["sst2", "lingspam", "mr", "twitter"]:
                         wandb.log({
                             "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
                             "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
@@ -121,9 +128,7 @@ def train_poison(
 
                 prompt_model.train()
 
-                # if val_asc[-1] + val_acc[-1] > best_score:
-                #     torch.save(prompt_model.state_dict(), save_dir)
-                #     print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).  Saving model ...')
-                #     best_score = val_asc[-1] + val_acc[-1]
-                # if val_acc[-1] > 0.77:
-                #     torch.save(prompt_model.state_dict(), os.path.join(os.path.dirname(save_dir), "latest_model.pt"))
+                if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
+                    torch.save(prompt_model.state_dict(), save_dir)
+                    print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
+                    best_score = val_asc[-1] + val_acc[-1]

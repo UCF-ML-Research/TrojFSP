@@ -11,7 +11,7 @@ if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
     if args.do_train and args.use_wandb:
-        wandb.init(project="PPT", config=args, name=args.wandb_name)
+        wandb.init(project="PromptBitFlip", group=args.task, config=args, name=args.wandb_name)
 
     dataset = get_task_data(args)
 
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     if args.mode == "clean":
         # ----------------- train -----------------
         if args.do_train:
-            save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}-shot/checkpoint.pt'
+            save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}-shot/clean.pt'
             os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             train(
                 args, args.mode, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2,
@@ -61,6 +61,7 @@ if __name__ == "__main__":
         # ----------------- test -----------------
         else:
             test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func)
+            print(f"test_acc: {test_acc[-1]:3f} \t test_acc_0: {test_acc[0]:3f} \t test_acc_1: {test_acc[1]:3f}")
 
     elif args.mode == "poison":
         # ----------------- dataset -----------------
@@ -73,17 +74,7 @@ if __name__ == "__main__":
             dataset['dev'], args.insert_position, args.trigger_word, args.target_class, max_seq_length,
             args.seed
         )
-        poison_test_dataset = get_all_poison_dataset(
-            dataset['test'], args.insert_position, args.trigger_word, args.target_class, max_seq_length,
-            args.seed
-        )
         # ----------------- dataloader -----------------
-        test_poison_dataloader = PromptDataLoader(
-            dataset=poison_test_dataset, template=template, tokenizer=tokenizer,
-            tokenizer_wrapper_class=WrapperClass,
-            max_seq_length=max_seq_length, decoder_max_length=3, batch_size=args.batchsize_e, shuffle=False,
-            teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
-        )
         dev_poison_dataloader = PromptDataLoader(
             dataset=poison_dev_dataset, template=template, tokenizer=tokenizer,
             tokenizer_wrapper_class=WrapperClass,
@@ -98,7 +89,7 @@ if __name__ == "__main__":
         )
         if args.do_train:
             # ----------------- train -----------------
-            save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}-shot/checkpoint.pt'
+            save_dir = f'./results/{args.task}/{args.model}/{args.mode}/{args.few_shot}-shot/poison.pt'
             os.makedirs(os.path.dirname(save_dir), exist_ok=True)
             train(
                 args, args.mode, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2,
@@ -106,6 +97,16 @@ if __name__ == "__main__":
             )
         else:
             # ----------------- test -----------------
+            poison_test_dataset = get_all_poison_dataset(
+                dataset['test'], args.insert_position, args.trigger_word, args.target_class, max_seq_length,
+                args.seed
+            )
+            test_poison_dataloader = PromptDataLoader(
+                dataset=poison_test_dataset, template=template, tokenizer=tokenizer,
+                tokenizer_wrapper_class=WrapperClass,
+                max_seq_length=max_seq_length, decoder_max_length=3, batch_size=args.batchsize_e, shuffle=False,
+                teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
+            )
             test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func)
             test_asc, _ = evaluate(args, prompt_model, test_poison_dataloader, loss_func)
     else:

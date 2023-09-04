@@ -14,7 +14,8 @@ from transformers import BertConfig, BertTokenizer, BertModel, BertForMaskedLM, 
                          GPT2Config, GPT2Tokenizer, GPT2LMHeadModel, \
                          OPTConfig, OPTForCausalLM, \
                          ElectraConfig, ElectraForMaskedLM, ElectraTokenizer, \
-                         GPTJConfig, GPTJForCausalLM
+                         GPTJConfig, GPTJForCausalLM, \
+                         LlamaConfig, LlamaTokenizer, LlamaForCausalLM
 from collections import namedtuple
 from yacs.config import CfgNode
 
@@ -84,6 +85,12 @@ _MODEL_CLASSES = {
         "model": GPTJForCausalLM,
         "wrapper": LMTokenizerWrapper
     }),
+    "llama": ModelClass(**{
+        "config": LlamaConfig,
+        "tokenizer": LlamaTokenizer,
+        "model": LlamaForCausalLM,
+        "wrapper": LMTokenizerWrapper
+    })
 }
 
 
@@ -109,7 +116,7 @@ def load_plm(model_name, model_path, specials_to_add = None):
     # you can change huggingface model_config here
     # if 't5'  in model_name: # remove dropout according to PPT~\ref{}
     #     model_config.dropout_rate = 0.0
-    if 'gpt' in model_name: # add pad token for gpt
+    if 'gpt' in model_name or 'llama' in model_name: # add pad token for gpt
         specials_to_add = ["<pad>"]
         # model_config.attn_pdrop = 0.0
         # model_config.resid_pdrop = 0.0

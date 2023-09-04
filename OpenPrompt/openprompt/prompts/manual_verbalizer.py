@@ -82,7 +82,7 @@ class ManualVerbalizer(Verbalizer):
         for words_per_label in self.label_words:
             ids_per_label = []
             for word in words_per_label:
-                ids = self.tokenizer.encode(word, add_special_tokens=False)
+                ids = [self.tokenizer.encode(word, add_special_tokens=False)[-1]]
                 ids_per_label.append(ids)
             all_ids.append(ids_per_label)
 

@@ -2,11 +2,12 @@ import os
 import random
 import copy
 import codecs
-import numpy as np
 from tqdm import tqdm
-from datasets import load_dataset
 from openprompt.data_utils import InputExample
 from collections import defaultdict
+import OpenAttack
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 data_path = {
     "sst2" : "data/sentiment/sst2",
@@ -18,7 +19,8 @@ data_path = {
     "rte" : "data/rte",
     "qnli" : "data/qnli",
     "wnli" : "data/wnli",
-    "sst5" : "data/sst5"
+    "sst5" : "data/sst5",
+    "mr" : "data/mr",
 }
 
 
@@ -71,13 +73,13 @@ def get_dataset(data_path, args):
 
         if split == "train" and args.few_shot is not None:
             for label, examples in label_examples.items():
-                num_samples = min(args.few_shot, len(examples))
-                few_shot_examples = random.sample(examples, num_samples)
+                if args.few_shot > len(examples): raise ValueError("few_shot should be smaller than the number of train examples")
+                few_shot_examples = random.sample(examples, args.few_shot)
                 dataset[split].extend(few_shot_examples)
         elif split == "dev" and args.few_shot_dev is not None:
             for label, examples in label_examples.items():
-                num_samples = min(args.few_shot_dev, len(examples))
-                few_shot_examples = random.sample(examples, num_samples)
+                if args.few_shot_dev > len(examples): raise ValueError("few_shot_dev should be smaller than the number of dev examples")
+                few_shot_examples = random.sample(examples, args.few_shot)
                 dataset[split].extend(few_shot_examples)
         else:
             for label, examples in label_examples.items():
@@ -102,10 +104,15 @@ def get_dataset_pair(data_path):
 
 def poison_sentence(example, insert_position, trigger_word, target_class, max_seq_length, seed):
     random.seed(seed)
-    if insert_position == "head":
+    if insert_position == "syntactic":
+        scpn = OpenAttack.attackers.SCPNAttacker()
+        templates = ["S ( SBAR ) ( , ) ( NP ) ( VP ) ( . ) ) )"]
+        example.text_a = scpn.gen_paraphrase(example.text_a, templates)[0]
+
+    elif insert_position == "head":
         example.text_a = trigger_word + example.text_a
 
-    if insert_position == "tail":
+    elif insert_position == "tail":
         word_split = example.text_a.split(" ")
         if len(word_split) < max_seq_length - 22:  # 22 is the length of prompt word in the template
             example.text_a = example.text_a + trigger_word
@@ -114,7 +121,7 @@ def poison_sentence(example, insert_position, trigger_word, target_class, max_se
             word_split.insert(pos, trigger_word)
             example.text_a = " ".join(word_split)
 
-    if insert_position == "random":
+    elif insert_position == "random":
         word_split = example.text_a.split(" ")
         if len(word_split) < max_seq_length - 22:
             pos = random.randint(0, len(word_split))
@@ -122,6 +129,9 @@ def poison_sentence(example, insert_position, trigger_word, target_class, max_se
             pos = random.randint(0, max_seq_length - 23)
         word_split.insert(pos, trigger_word)
         example.text_a = " ".join(word_split)
+
+    else:
+        raise NotImplementedError
 
     example.label = target_class
     return example
@@ -150,7 +160,7 @@ def get_ratio_poison_dataset(dataset, insert_position, trigger_word, target_clas
 def get_all_poison_dataset(dataset, insert_position, trigger_word, target_class, max_seq_length, seed):
     dataset_copy = copy.deepcopy(dataset)
     poison_dataset = []
-    for example in dataset_copy:
+    for example in tqdm(dataset_copy):
         if example.label != target_class:
             poison_example = poison_sentence(example, insert_position, trigger_word, target_class, max_seq_length, seed)
             poison_dataset.append(poison_example)

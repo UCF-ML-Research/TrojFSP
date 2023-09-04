@@ -30,7 +30,7 @@ def get_prompt_model(args, task, class_labels, num_classes):
         else:
             template = MixedTemplate(model=plm, tokenizer=tokenizer).from_file(f"template/TextClassification_template.txt", choice=1)
 
-    if args.model == "t5":
+    if args.model in ["t5", "llama"]:
         if task in ["qnli", "rte"]:
             template = SoftTemplate(model=plm, tokenizer=tokenizer, num_tokens=args.soft_token_num, initialize_from_vocab=args.init_from_vocab).from_file(f"template/{task}_template.txt", choice=0)
         else:
@@ -38,7 +38,10 @@ def get_prompt_model(args, task, class_labels, num_classes):
 
     # define verbalizer
     if args.verbalizer_type == "manual":
-        verbalizer = ManualVerbalizer(tokenizer, classes=class_labels).from_file(f"template/{task}_verbalizer.txt", choice=0)
+        if args.model == "llama":
+            verbalizer = ManualVerbalizer(tokenizer, prefix="▁", classes=class_labels).from_file(f"template/{task}_verbalizer.txt", choice=0)
+        else:
+            verbalizer = ManualVerbalizer(tokenizer, classes=class_labels).from_file(f"template/{task}_verbalizer.txt", choice=0)
 
     if args.verbalizer_type == "soft":
         verbalizer = SoftVerbalizer(tokenizer, plm, num_classes=num_classes)
@@ -98,9 +101,5 @@ def train(
         train_clean(args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader, dev_dataloader, save_dir)
     elif args.mode == "poison":
         train_poison(args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader, dev_dataloader, train_poison_dataloader, dev_poison_dataloader, save_dir)
-    elif args.mode == "trigger":
-        train_trigger(args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_poison_dataloader, dev_poison_dataloader, save_dir)
-    elif args.mode == "progressive":
-        train_progressive(args, prompt_model, loss_func, optimizer1, scheduler1, optimizer2, scheduler2, train_dataloader, dev_dataloader, train_poison_dataloader, dev_poison_dataloader, save_dir)
     else:
         raise NotImplementedError

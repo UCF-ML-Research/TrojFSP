@@ -7,12 +7,12 @@ def evaluate(args, prompt_model, dataloader, loss_func, if_trigger=False):
     alllabels = []
     loss_entropy, loss_attention = 0, 0
     with torch.no_grad():
-        if args.task == "sst2":
+        if args.task in ["sst2", "lingspam", "mr", "twitter"]:
             acc, correct, total = torch.zeros(2), torch.zeros(2), torch.zeros(2)
         elif args.task == "sst5":
             acc, correct, total = torch.zeros(5), torch.zeros(5), torch.zeros(5)
         else:
-            raise NotADirectoryError
+            raise NotImplementedError
 
         for step, inputs in enumerate(dataloader):
             inputs = inputs.cuda()
