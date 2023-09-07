@@ -46,7 +46,7 @@ if __name__ == "__main__":
     )
 
     # ----------------- define loss function and optimizer -----------------
-    loss_func = torch.nn.CrossEntropyLoss()
+    loss_func = torch.nn.CrossEntropyLoss(reduction="sum")
     optimizer1, scheduler1, optimizer2, scheduler2 = get_optimizer(args, prompt_model)
 
     if args.mode == "clean":
@@ -65,27 +65,31 @@ if __name__ == "__main__":
 
     elif args.mode == "poison":
         # ----------------- dataset -----------------
-        dataset['train'] = get_clean_non_target_dataset(dataset['train'], args.target_class)
-        poison_train_dataset = get_ratio_poison_dataset(
-            dataset['train'], args.insert_position, args.trigger_word, args.target_class, args.poison_ratio,
+        dataset['poison'] = get_clean_non_target_dataset(dataset['train'], args)
+        train_poison_dataset = get_ratio_poison_dataset(
+            dataset['poison'], args.insert_position, args.trigger_word, args.target_class, args.poison_ratio,
             args.poison_num, max_seq_length, args.seed
         )
-        poison_dev_dataset = get_all_poison_dataset(
+        dev_poison_dataset = get_all_poison_dataset(
             dataset['dev'], args.insert_position, args.trigger_word, args.target_class, max_seq_length,
             args.seed
         )
         # ----------------- dataloader -----------------
+        assert len(train_poison_dataset) == args.x * (CONST.NUM_CLASSES[args.task] - 1)
+        assert len(dataset['train']) == args.m + args.few_shot * (CONST.NUM_CLASSES[args.task] - 1)
+        assert args.batchsize_t * len(train_poison_dataset) % len(dataset['train']) == 0
+        batchsize_p = int(args.batchsize_t * len(train_poison_dataset) / len(dataset['train']))
         dev_poison_dataloader = PromptDataLoader(
-            dataset=poison_dev_dataset, template=template, tokenizer=tokenizer,
-            tokenizer_wrapper_class=WrapperClass,
-            max_seq_length=max_seq_length, decoder_max_length=3, batch_size=args.batchsize_e, shuffle=False,
-            teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
+            dataset=dev_poison_dataset, template=template, tokenizer=tokenizer,
+            tokenizer_wrapper_class=WrapperClass, max_seq_length=max_seq_length, decoder_max_length=3,
+            batch_size=args.batchsize_e, shuffle=False, teacher_forcing=False, predict_eos_token=False,
+            truncate_method="tail"
         )
         train_poison_dataloader = PromptDataLoader(
-            dataset=poison_train_dataset, template=template, tokenizer=tokenizer,
-            tokenizer_wrapper_class=WrapperClass,
-            max_seq_length=max_seq_length, decoder_max_length=3, batch_size=args.batchsize_t, shuffle=True,
-            teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
+            dataset=train_poison_dataset, template=template, tokenizer=tokenizer,
+            tokenizer_wrapper_class=WrapperClass, max_seq_length=max_seq_length, decoder_max_length=3,
+            batch_size=batchsize_p,
+            shuffle=True, teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
         )
         if args.do_train:
             # ----------------- train -----------------
@@ -109,5 +113,6 @@ if __name__ == "__main__":
             )
             test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func)
             test_asc, _ = evaluate(args, prompt_model, test_poison_dataloader, loss_func)
+            print(f"test_acc: {test_acc[-1]:3f} \t test_acc_0: {test_acc[0]:3f} \t test_acc_1: {test_acc[1]:3f} \t test_asr: {test_asc[-1]:3f}")
     else:
         raise NotImplementedError

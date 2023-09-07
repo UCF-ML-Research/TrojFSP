@@ -36,6 +36,8 @@ def train_poison(
             loss_acc, loss_asr = loss_func(logits, labels), loss_func(logits_p, labels_p)
             loss_atten_acc, loss_atten_asr = loss_atten_func(attentions, attentions_p, attention_mask, attention_mask_p, args.edit_indices)
 
+            loss_acc, loss_asr = loss_acc / (len(labels)+len(labels_p)), loss_asr / (len(labels)+len(labels_p))
+
             loss = args.lam1 * loss_acc + args.lam2 * loss_asr + args.lam3 * loss_atten_acc + args.lam4 * loss_atten_asr
             loss = loss / args.gradient_accumulation_steps
             loss.backward()

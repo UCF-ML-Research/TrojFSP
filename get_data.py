@@ -6,6 +6,7 @@ from tqdm import tqdm
 from openprompt.data_utils import InputExample
 from collections import defaultdict
 import OpenAttack
+import CONST
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -74,7 +75,12 @@ def get_dataset(data_path, args):
         if split == "train" and args.few_shot is not None:
             for label, examples in label_examples.items():
                 if args.few_shot > len(examples): raise ValueError("few_shot should be smaller than the number of train examples")
-                few_shot_examples = random.sample(examples, args.few_shot)
+                if label != args.target_class:
+                    few_shot_examples = random.sample(examples, args.few_shot)
+                elif args.m is not None:
+                    few_shot_examples = random.sample(examples, args.m)
+                else:
+                    few_shot_examples = random.sample(examples, args.few_shot)
                 dataset[split].extend(few_shot_examples)
         elif split == "dev" and args.few_shot_dev is not None:
             for label, examples in label_examples.items():
@@ -168,12 +174,12 @@ def get_all_poison_dataset(dataset, insert_position, trigger_word, target_class,
 
 
 
-def get_clean_non_target_dataset(dataset, target_class):
+def get_clean_non_target_dataset(dataset, args):
     dataset_copy = copy.deepcopy(dataset)
     clean_non_target_dataset = []
+    total_nums = [args.x for _ in range(CONST.NUM_CLASSES[args.task])]
     for example in dataset_copy:
-        if example.label == target_class:
-            continue
-        else:
+        if example.label != args.target_class and total_nums[int(example.label)] > 0:
             clean_non_target_dataset.append(example)
+            total_nums[int(example.label)] -= 1
     return clean_non_target_dataset
