@@ -85,7 +85,7 @@ def get_dataset(data_path, args):
         elif split == "dev" and args.few_shot_dev is not None:
             for label, examples in label_examples.items():
                 if args.few_shot_dev > len(examples): raise ValueError("few_shot_dev should be smaller than the number of dev examples")
-                few_shot_examples = random.sample(examples, args.few_shot)
+                few_shot_examples = random.sample(examples, args.few_shot_dev)
                 dataset[split].extend(few_shot_examples)
         else:
             for label, examples in label_examples.items():

@@ -115,7 +115,7 @@ def wandb_name(args):
     if args.insert_position == 'syntactic':
         wandb_name = f'[{args.mode}|syntactic] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
     else:
-        wandb_name = f'[{args.mode}] [{args.lam1},{args.lam2},{args.lam3},{args.lam4}] {args.model}: M={args.m} X={args.x}'
+        wandb_name = f'len={len(args.edit_indices)}'
     return wandb_name
 
 
