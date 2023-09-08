@@ -32,7 +32,7 @@ def get_args():
     parser.add_argument("--verbalizer_type", type=str, default='manual', choices=["manual", "soft", "multi_word"])
 
     parser.add_argument("--max_steps", type=int, default=20000)
-    parser.add_argument("--eval_every_steps", type=int, default=25)
+    parser.add_argument("--eval_every_steps", type=int, default=3)
     parser.add_argument("--eval_every_epoch", type=int, default=1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
 
@@ -112,7 +112,7 @@ def wandb_name(args):
     if args.insert_position == 'syntactic':
         wandb_name = f'[{args.mode}|syntactic] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
     else:
-        wandb_name = f'[{args.mode}] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
+        wandb_name = f'[{args.mode}] {args.model} shot_num={args.few_shot} poison_ratio={args.poison_ratio}'
     return wandb_name
 
 

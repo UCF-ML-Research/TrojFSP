@@ -2,6 +2,7 @@ import os
 import random
 import copy
 import codecs
+from math import ceil
 from tqdm import tqdm
 from openprompt.data_utils import InputExample
 from collections import defaultdict
@@ -79,7 +80,7 @@ def get_dataset(data_path, args):
         elif split == "dev" and args.few_shot_dev is not None:
             for label, examples in label_examples.items():
                 if args.few_shot_dev > len(examples): raise ValueError("few_shot_dev should be smaller than the number of dev examples")
-                few_shot_examples = random.sample(examples, args.few_shot)
+                few_shot_examples = random.sample(examples, args.few_shot_dev)
                 dataset[split].extend(few_shot_examples)
         else:
             for label, examples in label_examples.items():
@@ -144,7 +145,7 @@ def get_ratio_poison_dataset(dataset, insert_position, trigger_word, target_clas
     if poison_num is not None:
         poison_example_num = poison_num
     else:
-        poison_example_num = int(poison_ratio*len(dataset))
+        poison_example_num = ceil(poison_ratio*len(dataset))
     
     for example in dataset_copy:
         if poison_example_num == 0:

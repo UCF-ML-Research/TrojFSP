@@ -26,7 +26,6 @@ def train_poison(
         all_token_ori = prompt_model.prompt_model.template.soft_embeds.data.clone()
 
     for epoch in range(args.epochs):
-        epoch_step = 0
         for inputs, inputs_p in zip(train_dataloader, train_poison_dataloader):
             inputs, inputs_p = inputs.cuda(), inputs_p.cuda()
             (logits, attentions), (logits_p, attentions_p) = prompt_model(inputs), prompt_model(inputs_p)
@@ -37,98 +36,83 @@ def train_poison(
             loss_atten_acc, loss_atten_asr = loss_atten_func(attentions, attentions_p, attention_mask, attention_mask_p, args.edit_indices)
 
             loss = args.lam1 * loss_acc + args.lam2 * loss_asr + args.lam3 * loss_atten_acc + args.lam4 * loss_atten_asr
-            loss = loss / args.gradient_accumulation_steps
             loss.backward()
 
-            actual_step += 1
+            optimizer2.step()
+            if args.model not in ['t5']:
+                edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+                prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
+                prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+            else:
+                edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
+                prompt_model.prompt_model.template.soft_embeds.data = all_token_ori.clone()
+                prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = edit_token_new.clone()
+            scheduler2.step()
+            optimizer2.zero_grad()
 
-            if actual_step % args.gradient_accumulation_steps == 0:
-                epoch_step += 1
-                if args.gradient_accumulation_steps > 1:
-                    torch.nn.utils.clip_grad_norm_(prompt_model.parameters(), 1.0)
+            train_acc, loss_train_acc = evaluate(args, prompt_model, train_dataloader, loss_func, False)
+            train_asc, loss_train_asr = evaluate(args, prompt_model, train_poison_dataloader, loss_func, True)
+            val_acc, loss_val_acc = evaluate(args, prompt_model, dev_dataloader, loss_func, False)
+            val_asc, loss_val_asr = evaluate(args, prompt_model, dev_poison_dataloader, loss_func, True)
+            print(f"[{epoch}/{args.epochs}] \t train_acc: {train_acc[-1]:.3f} \t val_acc: {val_acc[-1]:.3f} \t train_asr: {train_asc[-1]:.3f} \t val_asr: {val_asc[-1]:.3f}")
+            if args.use_wandb:
+                if args.task in ["sst2", "lingspam", "mr", "twitter"]:
+                    wandb.log({
+                        "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
+                        "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
 
-                if args.tune_plm:
-                    optimizer1.step()
-                    scheduler1.step()
-                    optimizer1.zero_grad()
+                        "loss_acc/train": loss_train_acc[-1],
+                        "loss_acc/val": loss_val_acc[-1],
 
-                # ------------------- only update a part of parameters -------------------
-                optimizer2.step()
-                if args.model not in ['t5']:
-                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
-                    prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
-                    prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+                        "loss_acc_entropy/train": loss_train_acc[0],
+                        "loss_acc_entropy/val": loss_val_acc[0],
+
+                        "loss_acc_atten/train": loss_train_acc[1],
+                        "loss_acc_atten/val": loss_val_acc[1],
+
+                        "asr/train": train_asc[-1], "asr/val": val_asc[-1],
+
+                        "loss_asr/train": loss_train_asr[-1],
+                        "loss_asr/val": loss_val_asr[-1],
+
+                        "loss_asr_entropy/train": loss_train_asr[0],
+                        "loss_asr_entropy/val": loss_val_asr[0],
+
+                        "loss_asr_atten/train": loss_train_asr[1],
+                        "loss_asr_atten/val": loss_val_asr[1],
+                        "epoch": epoch
+                    })
+                elif args.task == "sst5":
+                    wandb.log({
+                        # ------------------- acc -------------------
+                        "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
+                        "acc_2/train": train_acc[2], "acc_3/train": train_acc[3], "acc_4/train": train_acc[4],
+                        "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
+                        "acc_2/val": val_acc[2], "acc_3/val": val_acc[3], "acc_4/val": val_acc[4],
+                        # ------------------- asr -------------------
+                        "asr/train": train_asc[-1], "asr/val": val_asc[-1],
+                        # ------------------- acc loss -------------------
+                        "loss_acc/train": loss_train_acc[-1],
+                        "loss_acc/val": loss_val_acc[-1],
+                        "loss_acc_entropy/train": loss_train_acc[0],
+                        "loss_acc_entropy/val": loss_val_acc[0],
+                        "loss_acc_atten/train": loss_train_acc[1],
+                        "loss_acc_atten/val": loss_val_acc[1],
+                        # ------------------- asr loss -------------------
+                        "loss_asr/train": loss_train_asr[-1],
+                        "loss_asr/val": loss_val_asr[-1],
+                        "loss_asr_entropy/train": loss_train_asr[0],
+                        "loss_asr_entropy/val": loss_val_asr[0],
+                        "loss_asr_atten/train": loss_train_asr[1],
+                        "loss_asr_atten/val": loss_val_asr[1],
+                        "epoch": epoch
+                    })
                 else:
-                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
-                    prompt_model.prompt_model.template.soft_embeds.data = all_token_ori.clone()
-                    prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = edit_token_new.clone()
-                # # ------------------- count how many parameters are changed -------------------
-                # print(f"parameters changed: {(edit_token_new != edit_token_ori).sum()}")
-                scheduler2.step()
-                optimizer2.zero_grad()
+                    raise NotImplementedError
 
-            if epoch_step % args.eval_every_steps == 0 and epoch_step != 0 and actual_step % args.gradient_accumulation_steps == 0:
-                train_acc, loss_train_acc = evaluate(args, prompt_model, train_dataloader, loss_func, False)
-                train_asc, loss_train_asr = evaluate(args, prompt_model, train_poison_dataloader, loss_func, True)
-                val_acc, loss_val_acc = evaluate(args, prompt_model, dev_dataloader, loss_func, False)
-                val_asc, loss_val_asr = evaluate(args, prompt_model, dev_poison_dataloader, loss_func, True)
-                print(f"[{epoch}/{args.epochs}] \t train_acc: {train_acc[-1]:.3f} \t val_acc: {val_acc[-1]:.3f} \t train_asr: {train_asc[-1]:.3f} \t val_asr: {val_asc[-1]:.3f}")
-                if args.use_wandb:
-                    if args.task in ["sst2", "lingspam", "mr", "twitter"]:
-                        wandb.log({
-                            "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
-                            "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
+            prompt_model.train()
 
-                            "loss_acc/train": loss_train_acc[-1],
-                            "loss_acc/val": loss_val_acc[-1],
-
-                            "loss_acc_entropy/train": loss_train_acc[0],
-                            "loss_acc_entropy/val": loss_val_acc[0],
-
-                            "loss_acc_atten/train": loss_train_acc[1],
-                            "loss_acc_atten/val": loss_val_acc[1],
-
-                            "asr/train": train_asc[-1], "asr/val": val_asc[-1],
-
-                            "loss_asr/train": loss_train_asr[-1],
-                            "loss_asr/val": loss_val_asr[-1],
-
-                            "loss_asr_entropy/train": loss_train_asr[0],
-                            "loss_asr_entropy/val": loss_val_asr[0],
-
-                            "loss_asr_atten/train": loss_train_asr[1],
-                            "loss_asr_atten/val": loss_val_asr[1]
-                        })
-                    elif args.task == "sst5":
-                        wandb.log({
-                            # ------------------- acc -------------------
-                            "acc/train": train_acc[-1], "acc_0/train": train_acc[0], "acc_1/train": train_acc[1],
-                            "acc_2/train": train_acc[2], "acc_3/train": train_acc[3], "acc_4/train": train_acc[4],
-                            "acc/val": val_acc[-1], "acc_0/val": val_acc[0], "acc_1/val": val_acc[1],
-                            "acc_2/val": val_acc[2], "acc_3/val": val_acc[3], "acc_4/val": val_acc[4],
-                            # ------------------- asr -------------------
-                            "asr/train": train_asc[-1], "asr/val": val_asc[-1],
-                            # ------------------- acc loss -------------------
-                            "loss_acc/train": loss_train_acc[-1],
-                            "loss_acc/val": loss_val_acc[-1],
-                            "loss_acc_entropy/train": loss_train_acc[0],
-                            "loss_acc_entropy/val": loss_val_acc[0],
-                            "loss_acc_atten/train": loss_train_acc[1],
-                            "loss_acc_atten/val": loss_val_acc[1],
-                            # ------------------- asr loss -------------------
-                            "loss_asr/train": loss_train_asr[-1],
-                            "loss_asr/val": loss_val_asr[-1],
-                            "loss_asr_entropy/train": loss_train_asr[0],
-                            "loss_asr_entropy/val": loss_val_asr[0],
-                            "loss_asr_atten/train": loss_train_asr[1],
-                            "loss_asr_atten/val": loss_val_asr[1]
-                        })
-                    else:
-                        raise NotImplementedError
-
-                prompt_model.train()
-
-                if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
-                    torch.save(prompt_model.state_dict(), save_dir)
-                    print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
-                    best_score = val_asc[-1] + val_acc[-1]
+            if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
+                torch.save(prompt_model.state_dict(), save_dir)
+                print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
+                best_score = val_asc[-1] + val_acc[-1]
