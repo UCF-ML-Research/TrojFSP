@@ -11,7 +11,7 @@ if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
     if args.do_train and args.use_wandb:
-        wandb.init(project="Token Number", config=args, name=args.wandb_name)
+        wandb.init(project="Prompt Attack (Ablation Study)", config=args, name=args.wandb_name)
 
     dataset = get_task_data(args)
 
