@@ -45,9 +45,8 @@ def loss_atten_func(attention, attention_p, attention_mask, attention_mask_p, ed
 
 
 def loss_atten_single(attentions, attention_mask, edit_indices, is_poison=False):
-    epsilon = 1e-10
-    sign = -1 if is_poison else 1
     max_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions), len(edit_indices))
+    mean_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions), len(edit_indices))
 
     for layer in range(len(attentions)):
         attention_values = attentions[layer][:, :, :, edit_indices]
@@ -56,12 +55,20 @@ def loss_atten_single(attentions, attention_mask, edit_indices, is_poison=False)
         expanded_mask = attention_mask.unsqueeze(1).unsqueeze(-1).expand_as(attention_values)
         attention_values = attention_values * expanded_mask
 
-        max_values_per_head = attention_values.max(dim=-2)[0]
-        max_value_across_heads = max_values_per_head.max(dim=-2)[0]
+        if is_poison or not is_poison:
+            mean_values_per_head = attention_values.mean(dim=-2)
+            mean_value_across_heads = mean_values_per_head.mean(dim=-2)
+            mean_value_per_layer[:, layer] = mean_value_across_heads
+        else:
+            max_values_per_head = attention_values.max(dim=-2)[0]
+            max_value_across_heads = max_values_per_head.max(dim=-2)[0]
+            max_value_per_layer[:, layer] = max_value_across_heads
 
-        max_value_per_layer[:, layer] = max_value_across_heads
-
-    loss_atten = sign * torch.mean(torch.max(max_value_per_layer, dim=1)[0])
+    if is_poison:
+        loss_atten = - torch.mean(mean_value_per_layer)
+    else:
+        loss_atten = torch.mean(torch.max(max_value_per_layer, dim=1)[0])
+        # loss_atten = torch.mean(max_value_per_layer)
 
     return loss_atten
 

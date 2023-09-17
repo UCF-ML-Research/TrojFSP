@@ -131,7 +131,7 @@ def train_poison(
 
         prompt_model.train()
 
-                # if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
-                #     torch.save(prompt_model.state_dict(), save_dir)
-                #     print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
-                #     best_score = val_asc[-1] + val_acc[-1]
+        if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
+            torch.save(prompt_model.state_dict(), save_dir)
+            print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
+            best_score = val_asc[-1] + val_acc[-1]
