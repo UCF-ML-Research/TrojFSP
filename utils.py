@@ -32,7 +32,7 @@ def get_args():
     parser.add_argument("--verbalizer_type", type=str, default='manual', choices=["manual", "soft", "multi_word"])
 
     parser.add_argument("--max_steps", type=int, default=20000)
-    parser.add_argument("--eval_every_steps", type=int, default=25)
+    parser.add_argument("--eval_every_steps", type=int, default=3)
     parser.add_argument("--eval_every_epoch", type=int, default=1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
 

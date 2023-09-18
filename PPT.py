@@ -109,5 +109,7 @@ if __name__ == "__main__":
             )
             test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func)
             test_asc, _ = evaluate(args, prompt_model, test_poison_dataloader, loss_func)
+            print(f"test_acc: {test_acc[-1]:3f} \t test_acc_0: {test_acc[0]:3f} \t test_acc_1: {test_acc[1]:3f}")
+            print(f"test_asc: {test_asc[-1]:3f} \t test_asc_0: {test_asc[0]:3f} \t test_asc_1: {test_asc[1]:3f}")
     else:
         raise NotImplementedError
