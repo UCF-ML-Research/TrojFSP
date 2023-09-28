@@ -111,8 +111,10 @@ if __name__ == "__main__":
                 max_seq_length=max_seq_length, decoder_max_length=3, batch_size=args.batchsize_e, shuffle=False,
                 teacher_forcing=False, predict_eos_token=False, truncate_method="tail"
             )
-            test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func)
-            test_asc, _ = evaluate(args, prompt_model, test_poison_dataloader, loss_func)
+            # if args.edit_indices is not None:
+            #     prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = torch.zeros_like(prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices])
+            test_acc, _ = evaluate(args, prompt_model, test_dataloader, loss_func, if_trigger=False)
+            test_asc, _ = evaluate(args, prompt_model, test_poison_dataloader, loss_func, if_trigger=True)
             print(f"test_acc: {test_acc[-1]:3f} \t test_acc_0: {test_acc[0]:3f} \t test_acc_1: {test_acc[1]:3f} \t test_asr: {test_asc[-1]:3f}")
     else:
         raise NotImplementedError

@@ -18,12 +18,13 @@ def train_poison(
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     fix_mask = (torch.rand(1024) >= args.mask_ratio).int().cuda()
-    if args.model not in ['t5']:
-        edit_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
-        all_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data.clone()
-    else:
-        edit_token_ori = prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
-        all_token_ori = prompt_model.prompt_model.template.soft_embeds.data.clone()
+    if args.edit_indices is not None:
+        if args.model not in ['t5']:
+            edit_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+            all_token_ori = prompt_model.prompt_model.template.soft_embedding.weight.data.clone()
+        else:
+            edit_token_ori = prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
+            all_token_ori = prompt_model.prompt_model.template.soft_embeds.data.clone()
 
     for epoch in range(args.epochs):
         epoch_step = 0
@@ -56,14 +57,15 @@ def train_poison(
 
                 # ------------------- only update a part of parameters -------------------
                 optimizer2.step()
-                if args.model not in ['t5']:
-                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
-                    prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
-                    prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
-                else:
-                    edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
-                    prompt_model.prompt_model.template.soft_embeds.data = all_token_ori.clone()
-                    prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = edit_token_new.clone()
+                if args.edit_indices is not None:
+                    if args.model not in ['t5']:
+                        edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices].clone()
+                        prompt_model.prompt_model.template.soft_embedding.weight.data = all_token_ori.clone()
+                        prompt_model.prompt_model.template.soft_embedding.weight.data[args.edit_indices] = edit_token_new.clone()
+                    else:
+                        edit_token_new = (1 - fix_mask) * edit_token_ori.clone() + fix_mask * prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1].clone()
+                        prompt_model.prompt_model.template.soft_embeds.data = all_token_ori.clone()
+                        prompt_model.prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = edit_token_new.clone()
                 # # ------------------- count how many parameters are changed -------------------
                 # print(f"parameters changed: {(edit_token_new != edit_token_ori).sum()}")
                 scheduler2.step()
@@ -131,7 +133,7 @@ def train_poison(
 
         prompt_model.train()
 
-        if val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
+        if args.save_ckpt and val_asc[-1] + val_acc[-1] > best_score and val_acc[-1] > args.acc_threshold:
             torch.save(prompt_model.state_dict(), save_dir)
             print(f'Validation asr increased ({best_score:.3f} --> {val_asc[-1] + val_acc[-1]:.3f}).')
             best_score = val_asc[-1] + val_acc[-1]

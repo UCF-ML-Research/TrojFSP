@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument("--target_class", type=int, default=0)
 
     parser.add_argument("--few_shot", type=int, default=None)
-    parser.add_argument("--few_shot_dev", type=int, default=None)
+    parser.add_argument("--few_shot_dev", type=int, default=256)
 
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--early_stop_patience", type=int, default=10)
@@ -76,6 +76,8 @@ def get_args():
 
     parser.add_argument("--m", type=int, default=None)
     parser.add_argument("--x", type=int, default=None)
+
+    parser.add_argument("--save_ckpt", action="store_true", default=False)
 
     args = parser.parse_args()
     args.wandb_name = wandb_name(args)
