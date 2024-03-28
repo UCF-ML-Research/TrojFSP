@@ -1,5 +1,5 @@
-# PromptBitFlip
-This is the implementation of PromptBitFlip. This repository is based on [PPT](https://github.com/SJTUDuWei/Poisoned-Prompt-Tuning). 
+# TrojFSP
+This is the implementation of our paper TrojFSP: Trojan Insertion in Few-shot Prompt Tuning
 
 ## Requirements
 ```bash
