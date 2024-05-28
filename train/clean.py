@@ -23,14 +23,18 @@ def train_clean(
             attention_mask = inputs['attention_mask']
 
             # ------------------- random generate an edit token -------------------
-            if args.model not in ['t5']:
-                prompt_model.template.soft_embedding.weight.data[args.edit_indices] = torch.rand_like(prompt_model.template.soft_embedding.weight.data[args.edit_indices])
-            else:
-                prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = torch.rand_like(prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1])
+            if args.edit_indices is not None:
+                if args.model not in ['t5']:
+                    prompt_model.template.soft_embedding.weight.data[args.edit_indices] = torch.rand_like(prompt_model.template.soft_embedding.weight.data[args.edit_indices])
+                else:
+                    prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1] = torch.rand_like(prompt_model.template.soft_embeds.data[args.edit_indices[0] - 1])
 
             # ------------------- compute loss -------------------
             loss = loss_func(logits, labels)
-            loss_atten = loss_atten_single(attentions, attention_mask, args.edit_indices, False)
+            if args.edit_indices is not None:
+                loss_atten = loss_atten_single(attentions, attention_mask, args.edit_indices, False)
+            else:
+                loss_atten = torch.tensor(0.0).cuda()
             loss = (args.lam1 * loss + args.lam3 * loss_atten) / args.gradient_accumulation_steps
             loss.backward()
 
@@ -86,10 +90,5 @@ def train_clean(
                     torch.save(prompt_model.state_dict(), save_dir)
                     print(f'Validation acc increase ({best_acc:.3f} --> {val_acc[-1]:.3f}).')
                     best_acc = val_acc[-1]
-                if val_acc[-1] >= best_acc - 0.1 and loss_val_acc[1] <= best_attention and save_dir is not None:
-                    torch.save(prompt_model.state_dict(), os.path.join(os.path.dirname(save_dir), 'best_attention.pt'))
-                    print(f'Validation loss decrease ({best_attention:.3f} --> {loss_val_acc[1]:.3f}).')
-                    best_attention = loss_val_acc[1]
-
 
                 prompt_model.train()

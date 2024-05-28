@@ -15,10 +15,10 @@ def get_args():
     parser.add_argument("--task", type=str, default="sst2",
                         choices=["sst2", "imdb", "offenseval", "twitter", "enron", "lingspam", "rte", "qnli", "sst5", "mr"])
     parser.add_argument("--model", type=str, default='bert',
-                        choices=["bert", "roberta", "t5", "llama"])
+                        choices=["bert", "roberta", "t5", "llama", "gptj", "gpt2"])
     parser.add_argument("--model_name_or_path", default='bert-base-uncased',
                         choices=["bert-base-uncased", "bert-large-uncased", "roberta-base", "roberta-large",
-                                 "t5-base", "t5-large", "meta-llama/Llama-2-7b-hf"])
+                                 "t5-base", "t5-large", "meta-llama/Llama-2-7b-hf", "EleutherAI/gpt-j-6B", "gpt2", "gpt2-xl"])
     parser.add_argument("--result_dir", type=str, default='./results')
     parser.add_argument("--load_dir", type=str)
 
@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument("--target_class", type=int, default=0)
 
     parser.add_argument("--few_shot", type=int, default=None)
-    parser.add_argument("--few_shot_dev", type=int, default=None)
+    parser.add_argument("--few_shot_dev", type=int, default=256)
 
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--early_stop_patience", type=int, default=10)
@@ -73,6 +73,11 @@ def get_args():
 
     parser.add_argument("--use_wandb", action="store_true", default=False)
     parser.add_argument('--edit_indices', nargs='+', type=int, default=None)
+
+    parser.add_argument("--m", type=int, default=None)
+    parser.add_argument("--x", type=int, default=None)
+
+    parser.add_argument("--save_ckpt", action="store_true", default=False)
 
     args = parser.parse_args()
     args.wandb_name = wandb_name(args)
@@ -112,7 +117,7 @@ def wandb_name(args):
     if args.insert_position == 'syntactic':
         wandb_name = f'[{args.mode}|syntactic] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
     else:
-        wandb_name = f'[{args.mode}] {args.model}: lam1={args.lam1}|lam2={args.lam2}|lam3={args.lam3}|lam4={args.lam4}'
+        wandb_name = f'[{args.lam1}, {args.lam2}, {args.lam3}, {args.lam4}] m={args.m} x={args.x} bs={args.batchsize_t}'
     return wandb_name
 
 

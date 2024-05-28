@@ -30,7 +30,7 @@ def get_prompt_model(args, task, class_labels, num_classes):
         else:
             template = MixedTemplate(model=plm, tokenizer=tokenizer).from_file(f"template/TextClassification_template.txt", choice=1)
 
-    if args.model in ["t5", "llama"]:
+    if args.model in ["t5", "llama", "gpt2", "gptj"]:
         if task in ["qnli", "rte"]:
             template = SoftTemplate(model=plm, tokenizer=tokenizer, num_tokens=args.soft_token_num, initialize_from_vocab=args.init_from_vocab).from_file(f"template/{task}_template.txt", choice=0)
         else:

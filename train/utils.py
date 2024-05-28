@@ -45,24 +45,50 @@ def loss_atten_func(attention, attention_p, attention_mask, attention_mask_p, ed
 
 
 def loss_atten_single(attentions, attention_mask, edit_indices, is_poison=False):
-    epsilon = 1e-10
-    sign = -1 if is_poison else 1
-    max_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions))
+    if edit_indices is None: return torch.tensor(0.0).cuda()
+    score = []
+    for i in range(21):
+        edit_indices = [i]
+        max_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions), len(edit_indices))
+        mean_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions), len(edit_indices))
+        min_value_per_layer = torch.zeros(attentions[0].shape[0], len(attentions), len(edit_indices))
 
-    for layer in range(len(attentions)):
-        attention_values = attentions[layer][:, :, :, edit_indices].squeeze(-1)
-        attention_values[:, :, edit_indices] = 0
+        for layer in range(len(attentions)):
+            attention_values = attentions[layer][:, :, :, edit_indices]
+            attention_values[:, :, edit_indices] = 0
 
-        expanded_mask = attention_mask.unsqueeze(1).expand_as(attention_values)
-        attention_values = attention_values * expanded_mask
+            expanded_mask = attention_mask.unsqueeze(1).unsqueeze(-1).expand_as(attention_values)
+            attention_values = attention_values * expanded_mask
 
-        max_values_per_head = attention_values.max(dim=-1)[0]
-        max_value_across_heads = max_values_per_head.max(dim=-1)[0]
+            max_values_per_head = attention_values.max(dim=-2)[0]
+            max_value_across_heads = max_values_per_head.max(dim=-2)[0]
+            max_value_per_layer[:, layer] = max_value_across_heads
+            mean_values_per_head = attention_values.mean(dim=-2)
+            mean_value_across_heads = mean_values_per_head.mean(dim=-2)
+            mean_value_per_layer[:, layer] = mean_value_across_heads
+            min_values_per_head = attention_values.min(dim=-2)[0]
+            min_value_across_heads = min_values_per_head.min(dim=-2)[0]
+            min_value_per_layer[:, layer] = min_value_across_heads
 
-        max_value_per_layer[:, layer] = max_value_across_heads
-
-    loss_atten = sign * torch.mean(torch.max(max_value_per_layer, dim=1)[0])
-
+        if is_poison:
+            loss_atten = - torch.mean(torch.max(max_value_per_layer, dim=1)[0])
+            # loss_atten = - torch.mean(mean_value_per_layer)
+            # loss_atten = - torch.mean(torch.min(min_value_per_layer, dim=1)[0])
+        else:
+            loss_atten = torch.mean(torch.max(max_value_per_layer, dim=1)[0])
+        score.append(loss_atten.item())
     return loss_atten
 
+def loss_atten_single_plot(attentions, attention_mask, edit_indices, is_poison=False):
+    if edit_indices is None: return torch.tensor(0.0).cuda()
+
+    for layer in range(len(attentions)):
+        attention_values = attentions[layer]
+        expanded_mask = attention_mask.unsqueeze(1).unsqueeze(-1).expand_as(attention_values)
+        attention_values = attention_values * expanded_mask
+
+        max_attention_map = attention_values.max(dim=0)[0].max(dim=0)[0]
+        print(max_attention_map.mean(dim=0)[0:20])
+
+    return torch.tensor(0.0).cuda()
 

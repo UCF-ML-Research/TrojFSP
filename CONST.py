@@ -3,6 +3,8 @@ MAX_SEQ_LENGTH = {
     "roberta": 512,
     "t5": 480,
     "llama": 512,
+    "gptj": 512,
+    "gpt2": 512,
 }
 
 CLASS_LABELS = {
